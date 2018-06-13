@@ -4,66 +4,63 @@ const net = require('net')
 const prompt = require('prompt')
 
 const port = 10008
-const childrenPeers = []
+const peers = []
 
-function messageChildren(message, peer){
-  childrenPeers.forEach(p => {
-    if(p !== peer){
-      p.write(message)
-    }
+function broadcast(message, sender){
+  peers.forEach(p => {
+    if(p === sender) return
+    p.write(message)
+  })
+}
+
+function requestMessage(){
+  prompt.get('message', (err, {message}) => {
+    broadcast(message)
+    requestMessage()
   })
 }
 
 function connect(host){
-  let peer
-
-  function getMessage(){
-    prompt.get('message', (err, {message}) => {
-      if(peer){
-        peer.write(message)
-      }
-      messageChildren(message, peer)
-      getMessage()
-    })
-  }
-
-  net.createServer((p) => {
-    p.on('data', (data) => {
-      if(peer){
-        peer.write(data.toString())
-      }
-      messageChildren(data.toString(), p)
-      console.log(data.toString())
-    })
-
-    childrenPeers.push(p)
-  }).listen(port)
-
-  if(host === 'null'){
-    getMessage()
+  if(!host){
+    requestMessage()
     return false
   }
 
-  peer = net.createConnection(port, host, getMessage)
+  const peer = net.createConnection(port, host, () => {
+    peers.push(peer)
+    requestMessage()
+  })
+
+  peer.on('data', (data) => {
+    const message = data.toString()
+    broadcast(message, peer)
+    console.log(message)
+  })
+
+  peer.on('end', () => {
+    peers.splice(peers.indexOf(peer), 1)
+  })
 
   peer.on('error', () => {
     console.log('retrying connection...')
     setTimeout(connect, 5000, host)
   })
-
-  peer.on('data', (data) => {
-    console.log(data.toString())
-    messageChildren(data.toString(), peer)
-  })
 }
+
+net.createServer((p) => {
+  p.on('data', (data) => {
+    const message = data.toString()
+    broadcast(message, p)
+    console.log(message)
+  })
+
+  p.on('end', () => {
+    peers.splice(peers.indexOf(peer), 1)
+  })
+
+  peers.push(p)
+}).listen(port)
 
 prompt.get('host', (err, {host}) => {
   connect(host)
 })
-
-
-
-
-// Known Hosts
-// 192.168.0.113
-// 192.168.0.115
