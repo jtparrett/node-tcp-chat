@@ -14,8 +14,9 @@ function broadcast(message, sender){
 }
 
 function requestMessage(){
-  prompt.get('message', (err, {message}) => {
-    broadcast(message)
+  prompt.get('message', (err, result) => {
+    if(err) return
+    broadcast(result.message)
     requestMessage()
   })
 }
@@ -42,12 +43,11 @@ function connect(host){
   })
 
   peer.on('error', () => {
-    console.log('retrying connection...')
     setTimeout(connect, 5000, host)
   })
 }
 
-net.createServer((p) => {
+const server = net.createServer((p) => {
   p.on('data', (data) => {
     const message = data.toString()
     broadcast(message, p)
@@ -61,6 +61,11 @@ net.createServer((p) => {
   peers.push(p)
 }).listen(port)
 
-prompt.get('host', (err, {host}) => {
-  connect(host)
+prompt.get('host', (err, result) => {
+  if(err) return
+  connect(result.host)
+})
+
+process.on('exit', () => {
+  server.close()
 })
