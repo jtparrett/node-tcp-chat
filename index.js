@@ -3,7 +3,6 @@
 const net = require('net')
 const prompt = require('prompt')
 
-const port = 10008
 const peers = []
 
 function broadcast(message, sender){
@@ -21,7 +20,7 @@ function requestMessage(){
   })
 }
 
-function connect(host){
+function connect(port, host){
   if(!host){
     requestMessage()
     return false
@@ -43,7 +42,7 @@ function connect(host){
   })
 
   peer.on('error', () => {
-    setTimeout(connect, 5000, host)
+    setTimeout(connect, 5000, port, host)
   })
 }
 
@@ -55,15 +54,15 @@ const server = net.createServer((p) => {
   })
 
   p.on('end', () => {
-    peers.splice(peers.indexOf(peer), 1)
+    peers.splice(peers.indexOf(p), 1)
   })
 
   peers.push(p)
-}).listen(port)
+}).listen(process.argv[2] || 10008)
 
-prompt.get('host', (err, result) => {
+prompt.get(['host', 'port'], (err, result) => {
   if(err) return
-  connect(result.host)
+  connect(result.port, result.host)
 })
 
 process.on('exit', () => {
