@@ -1,0 +1,13 @@
+{
+  "name": "node-tcp-chat",
+  "version": "1.0.7",
+  "main": "index.js",
+  "license": "MIT",
+  "entry point": "index.js",
+  "dependencies": {
+    "prompt": "^1.0.0"
+  },
+  "bin": {
+    "NodeTCPChat": "./index.js"
+  }
+}
