@@ -4,72 +4,106 @@ const net = require('net')
 const prompt = require('prompt')
 const uuid = require('uuid/v1')
 
-const peers = []
-let ipTable = {}
+let peerTable = {}
+const serverPort = process.argv[2] || 10008
 const messages = {}
 
 function createPeer(peer){
-  ipTable[peer.remoteAddress] = {
-    host: peer.remoteAddress,
-    port: peer.remotePort
-  }
-
-  peers.push(peer)
-
   peer.on('data', (data) => {
-    const message = data.toString()
+    const req = data.toString()
 
-    if(message.indexOf('#ipTable') === 0){
-      peer.write(`#returnIpTable${peer.remoteAddress}&&${JSON.stringify(ipTable)}`)  
+    if(req.indexOf('#handshake') === 0){
+      const parts = req.replace('#handshake', '').split('&&')
+      const peerId = getPeerId(peer, parts[0])
+      peerTable[peerId] = peer
+
+      const res = Object.keys(peerTable).join(',')
+      peer.write(`#returnPeerTable${peerId}&&${res}`)  
       return
     }
 
-    if(message.indexOf('#returnIpTable') === 0){
-      const res = message.replace('#returnIpTable', '').split('&&')
-      ipTable = JSON.parse(res[1])
-      const keys = Object.keys(ipTable)
-      const start = keys.indexOf(res[0])
-      let index = 1
+    if(req.indexOf('#returnPeerTable') === 0){
+      const res = req.replace('#returnPeerTable', '').split('&&')
+      const pId = res[0]
+      const ips = res[1].split(',')
 
-      console.log('received ipTable', res[1])
-
-      while(index < keys.length){
-        const cur = (start + index) % keys.length
-        const ip = keys[cur]
-        if(ip !== peer.remoteAddress && ip !== res[0]){
-          const p = net.createConnection(ipTable[ip], () => {
-            console.log('connected to peer', ip)
-            createPeer(p)
-          })
-          index *= 2
+      console.log('peerTable', res[1])
+      
+      peerTable = ips.reduce((peerTable, id) => {
+        if(!peerTable[id]){
+          peerTable[id] = false
         }
-      }
+        return peerTable
+      }, peerTable)
+
+      findPeers(peerTable, pId)
+      return
     }
 
-    if(message.indexOf('#returnMessage') === 0){
-      const res = message.replace('#returnMessage', '').split('&&')
-      if(!messages[res[0]]){
-        messages[res[0]] = res[1]
-        broadcast(res[0], res[1], peer)
-        console.log(res[1])
+    if(req.indexOf('#message') === 0){
+      const parts = req.replace('#message', '').split('&&')
+      if(!messages[parts[0]]){
+        messages[parts[0]] = parts[1]
+        broadcast(parts[0], parts[1], peer)
+        console.log(parts[1])
       }
     }
   })
 
   peer.on('end', () => {
-    delete ipTable[peer.remoteAddress]
-    peers.splice(peers.indexOf(peer), 1)
+    console.log('peer left')
   })
 }
 
-function connectDistancePeers(...ignorePeers){
+let searchIndex = 1
+function findPeers(table, startPeerId){
+  const keys = Object.keys(table)
+  const startPeerIndex = keys.indexOf(startPeerId)
+  while(searchIndex < keys.length){
+    const index = (startPeerIndex + searchIndex) % keys.length
+    console.log(keys[index])
+    if(!table[keys[index]] && keys[index] !== startPeerId){
+      const parts = keys[index].split('@')
+      const peer = net.createConnection(parts[1], parts[0], () => {
+        console.log('connected', keys[index])
+        createPeer(peer)
+      })
 
+      peer.on('error', () => {
+        console.log('failed', keys[index])
+      })
+    }
+    searchIndex *= 2
+  }
+}
+
+function getPeerId(peer, port){
+  return `${peer.remoteAddress.replace(/^.*:/, '')}@${port}`
 }
 
 function broadcast(id, message, sender){
-  peers.forEach(p => {
-    if(p === sender) return
-    p.write(`#returnMessage${id}&&${message}`)
+  Object.values(peerTable).forEach(peer => {
+    if(!peer || peer === sender) return
+    peer.write(`#message${id}&&${message}`)
+  })
+}
+
+function initialPeerConnect(port, host){
+  requestMessage()
+
+  if(!host) return
+
+  const peer = net.createConnection(port, host, () => {
+    const peerId = getPeerId(peer, port)
+    peerTable[peerId] = peer
+    console.log('connected', peerId)
+    createPeer(peer)
+    peer.write(`#handshake${serverPort}`)
+  })
+
+  peer.on('error', () => {
+    console.log('retrying connection to initial peer...')
+    initialPeerConnect(port, host)
   })
 }
 
@@ -81,27 +115,7 @@ function requestMessage(){
   })
 }
 
-function connect(port, host){
-  if(!host){
-    requestMessage()
-    return
-  }
-
-  const peer = net.createConnection(port, host)
-
-  peer.on('connect', () => {
-    createPeer(peer)
-    requestMessage()
-    peer.write('#ipTable')
-  })
-
-  peer.on('error', () => {
-    console.log('retrying connection...')
-    connect(port, host)
-  })
-}
-
-const server = net.createServer(createPeer).listen(process.argv[2] || 10008)
+const server = net.createServer(createPeer).listen(serverPort)
 
 process.on('exit', () => {
   server.close()
@@ -109,5 +123,5 @@ process.on('exit', () => {
 
 prompt.get(['host', 'port'], (err, result) => {
   if(err) return
-  connect(result.port, result.host)
+  initialPeerConnect(result.port, result.host)
 })
