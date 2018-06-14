@@ -7,6 +7,7 @@ const uuid = require('uuid/v1')
 let peerTable = {}
 const serverPort = process.argv[2] || 10008
 const messages = {}
+let username = 'anon'
 
 function createPeer(peer){
   peer.on('data', (data) => {
@@ -110,7 +111,7 @@ function initialPeerConnect(port, host){
 function requestMessage(){
   prompt.get('message', (err, result) => {
     if(err) return
-    broadcast(uuid(), result.message)
+    broadcast(uuid(), `${username} : ${result.message}`)
     requestMessage()
   })
 }
@@ -121,7 +122,8 @@ process.on('exit', () => {
   server.close()
 })
 
-prompt.get(['host', 'port'], (err, result) => {
+prompt.get(['host', 'port', 'name'], (err, result) => {
   if(err) return
   initialPeerConnect(result.port, result.host)
+  username = result.name
 })
